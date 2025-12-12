@@ -1,14 +1,8 @@
 <?php
-session_start();
-header("Content-Type: application/json");
+require_once __DIR__ . '/../src/partials/bootstrap.php';
 
-if (empty($_SESSION['logged_in'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Niet ingelogd']);
-    exit;
-}
-
-require_once __DIR__ . '/../src/partials/dbConnectie.php';
+requireAuthAPI(10);
+requireDatabase();
 
 $uid = $_SESSION['logged_in']['id'];
 
@@ -22,6 +16,19 @@ $qRecent = $pdo->prepare("
 ");
 $qRecent->execute([$uid]);
 $recent = $qRecent->fetchAll(PDO::FETCH_ASSOC);
+
+// Add timezone info to datetime strings so JavaScript interprets them correctly
+// Database stores in Europe/Amsterdam timezone, so we append that timezone
+foreach ($recent as &$entry) {
+    if (isset($entry['created_at'])) {
+        // MySQL datetime format: YYYY-MM-DD HH:MM:SS
+        // Add timezone offset for Europe/Amsterdam (currently +01:00 for CET, +02:00 for CEST)
+        // For simplicity, we'll use +01:00 (adjust if you're in summer time)
+        $dt = new DateTime($entry['created_at'], new DateTimeZone('Europe/Amsterdam'));
+        $entry['created_at'] = $dt->format('Y-m-d\TH:i:sP'); // ISO 8601 format with timezone
+    }
+}
+unset($entry);
 
 // Paid cups + total spent
 $qPaid = $pdo->prepare("

@@ -1,5 +1,7 @@
 <?php
-session_start();
+require_once __DIR__ . '/../../src/partials/bootstrap.php';
+
+startSession();
 
 // Redirect if logged in
 if (!empty($_SESSION['logged_in'])) {
@@ -9,24 +11,58 @@ if (!empty($_SESSION['logged_in'])) {
 
 // Handle AJAX Register Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Start output buffering to catch any unwanted output
+    ob_start();
     header("Content-Type: application/json");
-    require_once __DIR__ . '/../../src/partials/dbConnectie.php';
+
+    try {
+        requireDatabase();
+    } catch (Exception $e) {
+        ob_end_clean();
+        http_response_code(500);
+        echo json_encode(['error' => 'Initialisatiefout bij registreren.']);
+        exit;
+    }
 
     $input = json_decode(file_get_contents('php://input'), true);
     $username = trim($input['username'] ?? '');
     $pw = $input['pw'] ?? '';
+    $pwConfirm = $input['pwConfirm'] ?? '';
 
-    if ($username === '' || $pw === '') {
+    if ($username === '' || $pw === '' || $pwConfirm === '') {
+        ob_end_clean();
         http_response_code(400);
         echo json_encode(['error' => 'Vul alle velden in.']);
         exit;
     }
 
+    if ($pw !== $pwConfirm) {
+        ob_end_clean();
+        http_response_code(400);
+        echo json_encode(['error' => 'Wachtwoorden komen niet overeen.']);
+        exit;
+    }
+
     try {
         $check = $pdo->prepare("SELECT username FROM users WHERE username = :u LIMIT 1");
+        if (!$check) {
+            ob_end_clean();
+            http_response_code(500);
+            echo json_encode(['error' => 'Database query voorbereiding mislukt: ' . implode(', ', $pdo->errorInfo())]);
+            exit;
+        }
+
         $check->execute(['u' => $username]);
+        if ($check->errorCode() !== '00000') {
+            ob_end_clean();
+            http_response_code(500);
+            $errorInfo = $check->errorInfo();
+            echo json_encode(['error' => 'Database query fout: ' . $errorInfo[2]]);
+            exit;
+        }
 
         if ($check->fetch()) {
+            ob_end_clean();
             http_response_code(409);
             echo json_encode(['error' => 'Deze gebruikersnaam is al in gebruik.']);
             exit;
@@ -38,20 +74,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             INSERT INTO users (username, password_hash, created_at)
             VALUES (:u, :h, NOW())
         ");
+
+        if (!$stmt) {
+            ob_end_clean();
+            http_response_code(500);
+            echo json_encode(['error' => 'Database INSERT voorbereiding mislukt: ' . implode(', ', $pdo->errorInfo())]);
+            exit;
+        }
+
         $stmt->execute(['u' => $username, 'h' => $hash]);
 
+        if ($stmt->errorCode() !== '00000') {
+            ob_end_clean();
+            http_response_code(500);
+            $errorInfo = $stmt->errorInfo();
+            echo json_encode(['error' => 'Database INSERT fout: ' . $errorInfo[2]]);
+            exit;
+        }
+
+        ob_end_clean();
         echo json_encode(['status' => 'ok']);
         exit;
     } catch (PDOException $e) {
+        ob_end_clean();
+        error_log('[Coffee] Register database error: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => 'Er ging iets mis bij het registreren.']);
+        // Tijdelijk: toon SQL error voor debugging
+        echo json_encode(['error' => 'Databasefout bij registreren: ' . $e->getMessage()]);
+        exit;
+    } catch (Exception $e) {
+        ob_end_clean();
+        error_log('[Coffee] Register error: ' . $e->getMessage());
+        http_response_code(500);
+        // Tijdelijk: toon error voor debugging
+        echo json_encode(['error' => 'Er ging iets mis bij het registreren: ' . $e->getMessage()]);
         exit;
     }
 }
 
-$pageTitle = "CoffeeSaver | Registreren";
-$includeParticles = true;
-include '../../src/partials/header.php';
+includeHeader("CoffeeSaver | Registreren", true);
 ?>
 
 <div id="particles"></div>
@@ -74,6 +135,13 @@ include '../../src/partials/header.php';
             <div>
                 <label class="text-gray-400 text-sm mt-3 mb-1">Wachtwoord</label>
                 <input type="password" id="pw"
+                    class="w-full p-3 bg-[#1a1a1a] text-amber-100 border border-[#3a2418] rounded mt-1 mb-2"
+                    required autocomplete="new-password">
+            </div>
+
+            <div>
+                <label class="text-gray-400 text-sm mt-3 mb-1">Herhaal wachtwoord</label>
+                <input type="password" id="pwConfirm"
                     class="w-full p-3 bg-[#1a1a1a] text-amber-100 border border-[#3a2418] rounded mt-1 mb-5"
                     required autocomplete="new-password">
             </div>
@@ -103,6 +171,15 @@ include '../../src/partials/header.php';
 
         const username = document.getElementById("username").value.trim();
         const pw = document.getElementById("pw").value;
+        const pwConfirm = document.getElementById("pwConfirm").value;
+
+        // Client-side validation
+        if (pw !== pwConfirm) {
+            toast.show("Wachtwoorden komen niet overeen.", "error");
+            btn.disabled = false;
+            btn.textContent = "Registreren";
+            return;
+        }
 
         try {
             const res = await fetch("", {
@@ -112,7 +189,8 @@ include '../../src/partials/header.php';
                 },
                 body: JSON.stringify({
                     username,
-                    pw
+                    pw,
+                    pwConfirm
                 })
             });
 
@@ -135,4 +213,4 @@ include '../../src/partials/header.php';
     });
 </script>
 
-<?php include '../../src/partials/footer.php'; ?>
+<?php includeFooter(); ?>

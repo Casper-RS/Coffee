@@ -1,14 +1,8 @@
 <?php
-session_start();
-header("Content-Type: application/json");
+require_once __DIR__ . '/../src/partials/bootstrap.php';
 
-if (empty($_SESSION['logged_in'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Niet ingelogd']);
-    exit;
-}
-
-require_once __DIR__ . '/../src/partials/dbConnectie.php';
+requireAuthAPI(10);
+requireDatabase();
 
 $uid = $_SESSION['logged_in']['id'];
 $input = json_decode(file_get_contents('php://input'), true);
